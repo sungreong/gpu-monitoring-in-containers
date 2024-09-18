@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 5s  # 5초마다 메트릭 수집
+
+scrape_configs:
+  - job_name: 'nvidia-gpu'
+    static_configs:
+      - targets: ['dcgm-exporter:9400']  # DCGM Exporter에서 GPU 메트릭 수집
+
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']  # cAdvisor에서 컨테이너 메트릭 수집
+      
+  - job_name: 'gpu-pid-monitor'
+    static_configs:
+      - targets: ['gpu-pid-monitor:8000']
