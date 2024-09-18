@@ -1,0 +1,115 @@
+version: '3.3'
+
+services:
+
+  dcgm-exporter:
+    image: nvidia/dcgm-exporter:latest
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    devices:
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidia1:/dev/nvidia1
+      - /dev/nvidia2:/dev/nvidia2
+      - /dev/nvidia3:/dev/nvidia3
+    expose:
+      - "9400"
+    networks:
+      internal_network:
+    command: ["dcgm-exporter", "--collectors", "container"]
+    privileged: true  # Added to grant necessary permissions
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/host/proc:ro
+      - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - dcgm-exporter
+    networks:
+      internal_network:
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--web.enable-admin-api'
+      
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - cadvisor
+    networks:
+      internal_network:
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SERVER_HTTP_PORT=3000  # Grafana 내부 HTTP 포트
+      - GF_SERVER_HTTP_ADDR=0.0.0.0  # 모든 IP에서 접근 가능하도록 설정
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    command:
+      - "sh"
+      - "-c"
+      - "chown -R grafana:grafana /var/lib/grafana && chmod -R 777 /var/lib/grafana && grafana-server"
+
+
+  cadvisor:
+    image: google/cadvisor:latest
+    ports:
+      - "8504:8080"  # Maps port 8080 inside the container to port 8504 on the host
+    devices:
+      - /dev/nvidiactl:/dev/nvidiactl
+      - /dev/nvidia-uvm:/dev/nvidia-uvm
+      - /dev/nvidia-uvm-tools:/dev/nvidia-uvm-tools
+      - /dev/nvidia-modeset:/dev/nvidia-modeset
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidia1:/dev/nvidia1
+      - /dev/nvidia2:/dev/nvidia2
+      - /dev/nvidia3:/dev/nvidia3
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /var/lib/nvidia-docker/volumes/nvidia_driver/387.26:/usr/local/nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all  # Makes all GPUs visible to the container
+    privileged: true  # Necessary to access the system and GPU devices
+    networks:
+      - internal_network
+
+
+  gpu-pid-monitor:
+    build: ./gpu-pid-monitor
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./gpu-pid-monitor/data:/data  # 외부 볼륨 연결
+    devices:
+      - /dev/nvidia0:/dev/nvidia0
+      - /dev/nvidia1:/dev/nvidia1
+      - /dev/nvidia2:/dev/nvidia2
+      - /dev/nvidia3:/dev/nvidia3
+    expose:
+      - "8000"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all  # 모든 GPU를 사용하도록 설정
+    networks:
+      - internal_network
+    pid: host             # Share the host's PID namespace
+    privileged: true      # Grant necessary permissions
+
+networks:
+  internal_network:
+    driver: bridge
+
+volumes:
+  grafana-storage:
